@@ -3,18 +3,26 @@ import { db } from "./firebase";
 import { ref, set, onValue, push, update } from "firebase/database";
 
 const WORDS = [
-  { crew: "нар", imposter: "гал" },
-  { crew: "ус", imposter: "сүү" },
-  { crew: "мод", imposter: "чулуу" },
-  { crew: "нохой", imposter: "муур" },
-  { crew: "цас", imposter: "мөс" },
-  { crew: "дэвтэр", imposter: "ном" },
-  { crew: "гутал", imposter: "оймс" },
-  { crew: "машин", imposter: "мотоцикл" },
-  { crew: "тэнгэр", imposter: "үүл" },
-  { crew: "талх", imposter: "боов" },
-  { crew: "сар", imposter: "од" },
-  { crew: "гар", imposter: "хөл" },
+  { crew: "нар" },
+  { crew: "ус" },
+  { crew: "мод" },
+  { crew: "нохой" },
+  { crew: "цас" },
+  { crew: "дэвтэр" },
+  { crew: "гутал" },
+  { crew: "машин" },
+  { crew: "тэнгэр" },
+  { crew: "талх" },
+  { crew: "сар" },
+  { crew: "гар" },
+  { crew: "ширээ" },
+  { crew: "цонх" },
+  { crew: "утас" },
+  { crew: "ном" },
+  { crew: "аяга" },
+  { crew: "хаалга" },
+  { crew: "гал" },
+  { crew: "усан үзэм" },
 ];
 
 export default function App() {
@@ -30,6 +38,7 @@ export default function App() {
   const [myRole, setMyRole] = useState("");
   const [hasVoted, setHasVoted] = useState(false);
   const [voteResult, setVoteResult] = useState(null);
+  const [selectedImposterCount, setSelectedImposterCount] = useState(1);
 
   function createRoom() {
     if (!name.trim()) return alert("Нэрээ оруулна уу!");
@@ -97,19 +106,26 @@ export default function App() {
     if (players.length < 3) return alert("Хамгийн багадаа 3 тоглогч хэрэгтэй!");
     const notReady = players.filter((p) => !p.admin && !p.ready);
     if (notReady.length > 0) return alert(`${notReady.map((p) => p.name).join(", ")} бэлэн болоогүй байна!`);
-    const imposterCount = players.length <= 5 ? 1 : players.length <= 9 ? 2 : 3;
+    if (selectedImposterCount >= players.length) return alert("Imposter тоо хэт их байна!");
+
     const shuffled = [...players].sort(() => Math.random() - 0.5);
-    const imposters = shuffled.slice(0, imposterCount).map((p) => p.id);
+    const imposters = shuffled.slice(0, selectedImposterCount).map((p) => p.id);
     const wordPair = WORDS[Math.floor(Math.random() * WORDS.length)];
     const words = {};
     players.forEach((p) => {
       words[p.id] = imposters.includes(p.id)
-        ? { word: wordPair.imposter, role: "imposter" }
+        ? { word: "", role: "imposter" }
         : { word: wordPair.crew, role: "crew" };
     });
     update(ref(db, `rooms/${myRoom}/game`), {
-      status: "playing", words, imposters, imposterCount,
-      round: 1, votes: {}, voteResult: null, eliminated: {},
+      status: "playing",
+      words,
+      imposters,
+      imposterCount: selectedImposterCount,
+      round: 1,
+      votes: {},
+      voteResult: null,
+      eliminated: {},
     });
     setHasVoted(false);
     setVoteResult(null);
@@ -158,7 +174,10 @@ export default function App() {
       return;
     }
     update(ref(db, `rooms/${myRoom}/game`), {
-      status: "playing", votes: {}, voteResult: null, eliminated,
+      status: "playing",
+      votes: {},
+      voteResult: null,
+      eliminated,
       round: (gameState.round || 1) + 1,
     });
     setHasVoted(false);
@@ -208,6 +227,22 @@ export default function App() {
               </div>
             ))}
           </div>
+          {isAdmin && (
+            <div style={s.imposterSelector}>
+              <div style={s.imposterLabel}>Imposter тоо сонгох:</div>
+              <div style={s.imposterBtns}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    style={{ ...s.imposterBtn, ...(selectedImposterCount === n ? s.imposterBtnActive : {}) }}
+                    onClick={() => setSelectedImposterCount(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {!isAdmin && (
             <button style={s.btnPrimary} onClick={toggleReady}>
               {players.find((p) => p.id === myId)?.ready ? "❌ Болих" : "✅ Бэлэн!"}
@@ -329,11 +364,15 @@ export default function App() {
           <div style={myRole === "imposter" ? s.imposterCard : s.crewCard}>
             <div style={s.roleEmoji}>{myRole === "imposter" ? "😈" : "🧑‍🚀"}</div>
             <div style={s.roleLabel}>{myRole === "imposter" ? "ЧИ IMPOSTER!" : "Чи Crewmate"}</div>
-            <div style={s.wordBox}>
-              <div style={s.wordLabel}>Чиний үг</div>
-              <div style={s.wordText}>{myWord}</div>
+            {myRole !== "imposter" && (
+              <div style={s.wordBox}>
+                <div style={s.wordLabel}>Чиний үг</div>
+                <div style={s.wordText}>{myWord}</div>
+              </div>
+            )}
+            <div style={s.hint}>
+              {myRole === "imposter" ? "Бусдыг мэхэл, илэрхгүй бай!" : "Imposter-ийг ол!"}
             </div>
-            <div style={s.hint}>{myRole === "imposter" ? "Бусдыг мэхэл, илэрхгүй бай!" : "Imposter-ийг ол!"}</div>
           </div>
         )}
         <div style={s.playerList}>
@@ -388,7 +427,12 @@ const s = {
   kick: { background: "#ff4d4d", color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 13 },
   voteBtn: { background: "#6C63FF", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 14, fontWeight: "bold" },
   voteCount: { fontSize: 13, color: "#6C63FF", marginRight: 4 },
-  roundBadge: { textAlign: "center", background: "rgba(108,99,255,0.2)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", display: "inline-block", margin: "0 auto 16px", fontSize: 14, fontWeight: "bold", width: "fit-content", marginLeft: "auto", marginRight: "auto" },
+  imposterSelector: { background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "14px", marginBottom: 12 },
+  imposterLabel: { color: "#8892b0", fontSize: 13, marginBottom: 10 },
+  imposterBtns: { display: "flex", gap: 8 },
+  imposterBtn: { flex: 1, padding: "10px", borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "#8892b0", border: "1px solid rgba(255,255,255,0.1)", cursor: "pointer", fontSize: 16, fontWeight: "bold" },
+  imposterBtnActive: { background: "#6C63FF", color: "#fff", border: "1px solid #6C63FF" },
+  roundBadge: { textAlign: "center", background: "rgba(108,99,255,0.2)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", display: "block", margin: "0 auto 16px", fontSize: 14, fontWeight: "bold", width: "fit-content" },
   imposterCard: { background: "linear-gradient(135deg, #ff4d4d, #c0392b)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
   crewCard: { background: "linear-gradient(135deg, #6C63FF, #4834d4)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
   eliminatedCard: { background: "rgba(255,255,255,0.05)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff", border: "1px solid rgba(255,255,255,0.1)" },
