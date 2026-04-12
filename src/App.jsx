@@ -388,7 +388,7 @@ const s = {
   kick: { background: "#ff4d4d", color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 13 },
   voteBtn: { background: "#6C63FF", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 14, fontWeight: "bold" },
   voteCount: { fontSize: 13, color: "#6C63FF", marginRight: 4 },
-  roundBadge: { textAlign: "center", background: "rgba(108,99,255,0.2)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", display: "inline-block", margin: "0 auto 16px", fontSize: 14, fontWeight: "bold", width: "fit-content", marginLeft: "auto", marginRight: "auto", display: "block" },
+  roundBadge: { textAlign: "center", background: "rgba(108,99,255,0.2)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", display: "inline-block", margin: "0 auto 16px", fontSize: 14, fontWeight: "bold", width: "fit-content", marginLeft: "auto", marginRight: "auto" },
   imposterCard: { background: "linear-gradient(135deg, #ff4d4d, #c0392b)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
   crewCard: { background: "linear-gradient(135deg, #6C63FF, #4834d4)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
   eliminatedCard: { background: "rgba(255,255,255,0.05)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff", border: "1px solid rgba(255,255,255,0.1)" },
