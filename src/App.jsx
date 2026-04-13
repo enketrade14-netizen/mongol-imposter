@@ -15,8 +15,8 @@ function getMaxImposters(playerCount) {
 }
 
 function getMaxSeconds(playerCount) {
-  if (playerCount <= 4) return 30;
-  if (playerCount <= 6) return 60;
+  if (playerCount <= 4) return 60;
+  if (playerCount <= 6) return 90;
   return 120;
 }
 
