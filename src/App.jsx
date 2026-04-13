@@ -1,31 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { db } from "./firebase";
 import { ref, set, onValue, push, update } from "firebase/database";
 
 const WORDS = [
-  { crew: "amarhuu" },
-  { crew: "amarenkh" },
-  { crew: "bymbaa" },
-  { crew: "jawhaa" },
-  { crew: "zoloo" },
-  { crew: "orgil" },
-  { crew: "hosoo" },
-  { crew: "hangai" },
-  { crew: "hashka" },
-  { crew: "zakiz" },
-  { crew: "michka" },
-  { crew: "margad" },
-  { crew: "oyuka bagsh" },
-  { crew: "tergel" },
-  { crew: "soyombo" },
-  { crew: "itgel" },
-  { crew: "o tenuun" },
-  { crew: "g tenuun" },
-  { crew: "suldee" },
-  { crew: "naraa" },
-  { crew: "enke" },
-  { crew: "amangul bagsh" },
-  { crew: "gegeelen" },
+  "нар", "ус", "мод", "нохой", "цас", "дэвтэр", "гутал", "машин",
+  "тэнгэр", "талх", "сар", "гар", "ширээ", "цонх", "утас", "ном",
+  "аяга", "хаалга", "морь", "цэцэг", "уул", "гол", "өвс", "чулуу",
 ];
 
 export default function App() {
@@ -42,6 +22,20 @@ export default function App() {
   const [hasVoted, setHasVoted] = useState(false);
   const [voteResult, setVoteResult] = useState(null);
   const [selectedImposterCount, setSelectedImposterCount] = useState(1);
+  const [timer, setTimer] = useState(null);
+
+  useEffect(() => {
+    if (gameState?.status === "voting" && gameState?.timerEnd) {
+      const interval = setInterval(() => {
+        const remaining = Math.ceil((gameState.timerEnd - Date.now()) / 1000);
+        setTimer(remaining > 0 ? remaining : 0);
+        if (remaining <= 0) {
+          clearInterval(interval);
+        }
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [gameState?.status, gameState?.timerEnd]);
 
   function createRoom() {
     if (!name.trim()) return alert("Нэрээ оруулна уу!");
@@ -113,12 +107,12 @@ export default function App() {
 
     const shuffled = [...players].sort(() => Math.random() - 0.5);
     const imposters = shuffled.slice(0, selectedImposterCount).map((p) => p.id);
-    const wordPair = WORDS[Math.floor(Math.random() * WORDS.length)];
+    const word = WORDS[Math.floor(Math.random() * WORDS.length)];
     const words = {};
     players.forEach((p) => {
       words[p.id] = imposters.includes(p.id)
         ? { word: "", role: "imposter" }
-        : { word: wordPair.crew, role: "crew" };
+        : { word, role: "crew" };
     });
     update(ref(db, `rooms/${myRoom}/game`), {
       status: "playing",
@@ -135,32 +129,53 @@ export default function App() {
   }
 
   function startVote() {
-    update(ref(db, `rooms/${myRoom}/game`), { status: "voting" });
+    const timerEnd = Date.now() + 30000;
+    update(ref(db, `rooms/${myRoom}/game`), {
+      status: "voting",
+      votes: {},
+      timerEnd,
+    });
+
+    setTimeout(() => {
+      resolveVoteAuto();
+    }, 30000);
+  }
+
+  function resolveVoteAuto() {
+    const gameRef = ref(db, `rooms/${myRoom}/game`);
+    onValue(gameRef, (snap) => {
+      const data = snap.val();
+      if (!data || data.status !== "voting") return;
+      const eliminated = data.eliminated || {};
+      const allPlayers = Object.entries(data.words || {}).map(([id, val]) => ({ id, ...val }));
+      const activePlayers = allPlayers.filter((p) => !eliminated[p.id]);
+      const votes = data.votes || {};
+
+      const tally = {};
+      activePlayers.forEach((p) => { tally[p.id] = 0; });
+      Object.values(votes).forEach((v) => { tally[v] = (tally[v] || 0) + 1; });
+
+      const maxVotes = Math.max(...Object.values(tally));
+      const topId = Object.keys(tally).find((k) => tally[k] === maxVotes);
+      const topPlayerData = players.find((p) => p.id === topId);
+      const wasImposter = data.imposters?.includes(topId);
+
+      update(gameRef, {
+        status: "result",
+        voteResult: {
+          playerId: topId,
+          playerName: topPlayerData?.name || "Тоглогч",
+          wasImposter,
+          voteCount: tally[topId] || 0,
+        },
+      });
+    }, { onlyOnce: true });
   }
 
   function vote(targetId) {
     if (hasVoted) return;
-    const eliminated = gameState?.eliminated || {};
-    const activePlayers = players.filter((p) => !eliminated[p.id]);
     update(ref(db, `rooms/${myRoom}/game/votes`), { [myId]: targetId });
     setHasVoted(true);
-    const newVotes = { ...(gameState?.votes || {}), [myId]: targetId };
-    if (Object.keys(newVotes).length >= activePlayers.length) {
-      resolveVote(newVotes, activePlayers);
-    }
-  }
-
-  function resolveVote(votes, activePlayers) {
-    const tally = {};
-    Object.values(votes).forEach((v) => { tally[v] = (tally[v] || 0) + 1; });
-    const maxVotes = Math.max(...Object.values(tally));
-    const topId = Object.keys(tally).find((k) => tally[k] === maxVotes);
-    const topPlayer = activePlayers.find((p) => p.id === topId);
-    const wasImposter = gameState?.imposters?.includes(topId);
-    update(ref(db, `rooms/${myRoom}/game`), {
-      status: "result",
-      voteResult: { playerId: topId, playerName: topPlayer?.name, wasImposter, voteCount: maxVotes },
-    });
   }
 
   function nextRound() {
@@ -234,7 +249,7 @@ export default function App() {
             <div style={s.imposterSelector}>
               <div style={s.imposterLabel}>Imposter тоо сонгох:</div>
               <div style={s.imposterBtns}>
-                {[1, 2, 3, 4, 5].map((n) => (
+                {[1, 2, 3].map((n) => (
                   <button
                     key={n}
                     style={{ ...s.imposterBtn, ...(selectedImposterCount === n ? s.imposterBtnActive : {}) }}
@@ -319,10 +334,17 @@ export default function App() {
     const eliminated = gameState?.eliminated || {};
     const activePlayers = players.filter((p) => !eliminated[p.id]);
     const currentVotes = gameState.votes || {};
+    const remaining = timer !== null ? timer : 30;
+    const timerColor = remaining <= 10 ? "#ff4d4d" : remaining <= 20 ? "#FFB300" : "#00C853";
+
     return (
       <div style={s.page}>
         <div style={s.container}>
           <h2 style={s.title}>🗳️ Vote хийх цаг!</h2>
+          <div style={{ ...s.timerBox, borderColor: timerColor }}>
+            <div style={{ ...s.timerText, color: timerColor }}>{remaining}</div>
+            <div style={s.timerLabel}>секунд</div>
+          </div>
           <p style={s.sub}>Сэжигтэй хүнд vote өг!</p>
           <div style={s.playerList}>
             {activePlayers.map((p) => {
@@ -390,7 +412,7 @@ export default function App() {
           ))}
         </div>
         {isAdmin && (
-          <button style={s.btnVote} onClick={startVote}>🗳️ Vote эхлүүлэх</button>
+          <button style={s.btnVote} onClick={startVote}>🗳️ Vote эхлүүлэх (30 сек)</button>
         )}
         {!isAdmin && <p style={s.sub}>Admin vote эхлүүлэхийг хүлээж байна...</p>}
       </div>
@@ -435,6 +457,9 @@ const s = {
   imposterBtns: { display: "flex", gap: 8 },
   imposterBtn: { flex: 1, padding: "10px", borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "#8892b0", border: "1px solid rgba(255,255,255,0.1)", cursor: "pointer", fontSize: 16, fontWeight: "bold" },
   imposterBtnActive: { background: "#6C63FF", color: "#fff", border: "1px solid #6C63FF" },
+  timerBox: { textAlign: "center", border: "3px solid #00C853", borderRadius: 16, padding: "16px", marginBottom: 16, background: "rgba(0,0,0,0.2)" },
+  timerText: { fontSize: 52, fontWeight: "bold", lineHeight: 1 },
+  timerLabel: { fontSize: 13, color: "#8892b0", marginTop: 4 },
   roundBadge: { textAlign: "center", background: "rgba(108,99,255,0.2)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", display: "block", margin: "0 auto 16px", fontSize: 14, fontWeight: "bold", width: "fit-content" },
   imposterCard: { background: "linear-gradient(135deg, #ff4d4d, #c0392b)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
   crewCard: { background: "linear-gradient(135deg, #6C63FF, #4834d4)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
