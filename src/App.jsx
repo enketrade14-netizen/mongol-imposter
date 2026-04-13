@@ -8,6 +8,18 @@ const WORDS = [
   "аяга", "хаалга", "морь", "цэцэг", "уул", "гол", "өвс", "чулуу",
 ];
 
+function getMaxImposters(playerCount) {
+  if (playerCount <= 4) return 1;
+  if (playerCount <= 6) return 2;
+  return 3;
+}
+
+function getMaxSeconds(playerCount) {
+  if (playerCount <= 4) return 30;
+  if (playerCount <= 6) return 60;
+  return 120;
+}
+
 export default function App() {
   const [name, setName] = useState("");
   const [roomCode, setRoomCode] = useState("");
@@ -22,20 +34,36 @@ export default function App() {
   const [hasVoted, setHasVoted] = useState(false);
   const [voteResult, setVoteResult] = useState(null);
   const [selectedImposterCount, setSelectedImposterCount] = useState(1);
+  const [selectedSeconds, setSelectedSeconds] = useState(30);
   const [timer, setTimer] = useState(null);
+  const [discussTimer, setDiscussTimer] = useState(null);
+
+  const maxImposters = getMaxImposters(players.length);
+  const maxSeconds = getMaxSeconds(players.length);
+
+  useEffect(() => {
+    if (selectedImposterCount > maxImposters) setSelectedImposterCount(maxImposters);
+    if (selectedSeconds > maxSeconds) setSelectedSeconds(maxSeconds);
+  }, [players.length]);
 
   useEffect(() => {
     if (gameState?.status === "voting" && gameState?.timerEnd) {
       const interval = setInterval(() => {
         const remaining = Math.ceil((gameState.timerEnd - Date.now()) / 1000);
         setTimer(remaining > 0 ? remaining : 0);
-        if (remaining <= 0) {
-          clearInterval(interval);
-        }
+        if (remaining <= 0) clearInterval(interval);
       }, 500);
       return () => clearInterval(interval);
     }
-  }, [gameState?.status, gameState?.timerEnd]);
+    if (gameState?.status === "playing" && gameState?.discussEnd) {
+      const interval = setInterval(() => {
+        const remaining = Math.ceil((gameState.discussEnd - Date.now()) / 1000);
+        setDiscussTimer(remaining > 0 ? remaining : 0);
+        if (remaining <= 0) clearInterval(interval);
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [gameState?.status, gameState?.timerEnd, gameState?.discussEnd]);
 
   function createRoom() {
     if (!name.trim()) return alert("Нэрээ оруулна уу!");
@@ -114,11 +142,16 @@ export default function App() {
         ? { word: "", role: "imposter" }
         : { word, role: "crew" };
     });
+
+    const discussEnd = Date.now() + selectedSeconds * 1000;
+
     update(ref(db, `rooms/${myRoom}/game`), {
       status: "playing",
       words,
       imposters,
       imposterCount: selectedImposterCount,
+      discussSeconds: selectedSeconds,
+      discussEnd,
       round: 1,
       votes: {},
       voteResult: null,
@@ -126,19 +159,25 @@ export default function App() {
     });
     setHasVoted(false);
     setVoteResult(null);
-  }
-
-  function startVote() {
-    const timerEnd = Date.now() + 30000;
-    update(ref(db, `rooms/${myRoom}/game`), {
-      status: "voting",
-      votes: {},
-      timerEnd,
-    });
 
     setTimeout(() => {
-      resolveVoteAuto();
-    }, 30000);
+      autoStartVote();
+    }, selectedSeconds * 1000);
+  }
+
+  function autoStartVote() {
+    const gameRef = ref(db, `rooms/${myRoom}/game`);
+    onValue(gameRef, (snap) => {
+      const data = snap.val();
+      if (!data || data.status !== "playing") return;
+      const timerEnd = Date.now() + 30000;
+      update(gameRef, {
+        status: "voting",
+        votes: {},
+        timerEnd,
+      });
+      setTimeout(() => resolveVoteAuto(), 30000);
+    }, { onlyOnce: true });
   }
 
   function resolveVoteAuto() {
@@ -147,7 +186,7 @@ export default function App() {
       const data = snap.val();
       if (!data || data.status !== "voting") return;
       const eliminated = data.eliminated || {};
-      const allPlayers = Object.entries(data.words || {}).map(([id, val]) => ({ id, ...val }));
+      const allPlayers = Object.entries(data.words || {}).map(([id]) => ({ id }));
       const activePlayers = allPlayers.filter((p) => !eliminated[p.id]);
       const votes = data.votes || {};
 
@@ -183,6 +222,7 @@ export default function App() {
     const remainingPlayers = players.filter((p) => !eliminated[p.id]);
     const remainingImposters = gameState.imposters.filter((id) => !eliminated[id]);
     const remainingCrew = remainingPlayers.filter((p) => !gameState.imposters.includes(p.id));
+
     if (remainingImposters.length === 0) {
       update(ref(db, `rooms/${myRoom}/game`), { status: "crewWin", eliminated });
       return;
@@ -191,15 +231,22 @@ export default function App() {
       update(ref(db, `rooms/${myRoom}/game`), { status: "imposterWin", eliminated });
       return;
     }
+
+    const discussEnd = Date.now() + (gameState.discussSeconds || 30) * 1000;
     update(ref(db, `rooms/${myRoom}/game`), {
       status: "playing",
       votes: {},
       voteResult: null,
       eliminated,
+      discussEnd,
       round: (gameState.round || 1) + 1,
     });
     setHasVoted(false);
     setVoteResult(null);
+
+    setTimeout(() => {
+      autoStartVote();
+    }, (gameState.discussSeconds || 30) * 1000);
   }
 
   // LOBBY
@@ -223,6 +270,10 @@ export default function App() {
   // WAITING ROOM
   if (!gameState || gameState.status === "waiting") {
     const allReady = players.every((p) => p.admin || p.ready);
+    const curMaxImp = getMaxImposters(players.length);
+    const curMaxSec = getMaxSeconds(players.length);
+    const secOptions = players.length <= 4 ? [15, 30] : players.length <= 6 ? [30, 45, 60] : [60, 90, 120];
+
     return (
       <div style={s.page}>
         <div style={s.container}>
@@ -245,22 +296,45 @@ export default function App() {
               </div>
             ))}
           </div>
+
           {isAdmin && (
-            <div style={s.imposterSelector}>
-              <div style={s.imposterLabel}>Imposter тоо сонгох:</div>
-              <div style={s.imposterBtns}>
-                {[1, 2, 3].map((n) => (
-                  <button
-                    key={n}
-                    style={{ ...s.imposterBtn, ...(selectedImposterCount === n ? s.imposterBtnActive : {}) }}
-                    onClick={() => setSelectedImposterCount(n)}
-                  >
-                    {n}
-                  </button>
-                ))}
+            <>
+              <div style={s.selectorBox}>
+                <div style={s.selectorLabel}>
+                  Imposter тоо сонгох: <span style={s.selectorHint}>(max {curMaxImp})</span>
+                </div>
+                <div style={s.selectorBtns}>
+                  {Array.from({ length: curMaxImp }, (_, i) => i + 1).map((n) => (
+                    <button
+                      key={n}
+                      style={{ ...s.selectorBtn, ...(selectedImposterCount === n ? s.selectorBtnActive : {}) }}
+                      onClick={() => setSelectedImposterCount(n)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+
+              <div style={s.selectorBox}>
+                <div style={s.selectorLabel}>
+                  Хэлэлцэх хугацаа: <span style={s.selectorHint}>(max {curMaxSec}с)</span>
+                </div>
+                <div style={s.selectorBtns}>
+                  {secOptions.map((n) => (
+                    <button
+                      key={n}
+                      style={{ ...s.selectorBtn, ...(selectedSeconds === n ? s.selectorBtnActive : {}) }}
+                      onClick={() => setSelectedSeconds(n)}
+                    >
+                      {n}с
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
           )}
+
           {!isAdmin && (
             <button style={s.btnPrimary} onClick={toggleReady}>
               {players.find((p) => p.id === myId)?.ready ? "❌ Болих" : "✅ Бэлэн!"}
@@ -375,10 +449,19 @@ export default function App() {
   // PLAYING
   const eliminated = gameState?.eliminated || {};
   const isEliminated = eliminated[myId];
+  const discussRemaining = discussTimer !== null ? discussTimer : gameState?.discussSeconds || 30;
+  const discussColor = discussRemaining <= 10 ? "#ff4d4d" : discussRemaining <= 30 ? "#FFB300" : "#00C853";
+
   return (
     <div style={s.page}>
       <div style={s.container}>
         <div style={s.roundBadge}>Round {gameState.round}</div>
+
+        <div style={{ ...s.timerBox, borderColor: discussColor, marginBottom: 16 }}>
+          <div style={{ ...s.timerText, color: discussColor }}>{discussRemaining}</div>
+          <div style={s.timerLabel}>секундын дараа vote эхэлнэ</div>
+        </div>
+
         {isEliminated ? (
           <div style={s.eliminatedCard}>
             <div style={{ fontSize: 48 }}>💀</div>
@@ -400,6 +483,7 @@ export default function App() {
             </div>
           </div>
         )}
+
         <div style={s.playerList}>
           <div style={s.sectionTitle}>Тоглогчид ({players.length})</div>
           {players.map((p) => (
@@ -411,10 +495,6 @@ export default function App() {
             </div>
           ))}
         </div>
-        {isAdmin && (
-          <button style={s.btnVote} onClick={startVote}>🗳️ Vote эхлүүлэх (30 сек)</button>
-        )}
-        {!isAdmin && <p style={s.sub}>Admin vote эхлүүлэхийг хүлээж байна...</p>}
       </div>
     </div>
   );
@@ -430,7 +510,6 @@ const s = {
   btnPrimary: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "#6C63FF", color: "#fff", border: "none", cursor: "pointer", marginBottom: 8, fontWeight: "bold" },
   btnSecondary: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "transparent", color: "#6C63FF", border: "2px solid #6C63FF", cursor: "pointer", fontWeight: "bold" },
   btnStart: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "#00C853", color: "#fff", border: "none", cursor: "pointer", marginTop: 8, fontWeight: "bold" },
-  btnVote: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "#FF6B35", color: "#fff", border: "none", cursor: "pointer", marginTop: 8, fontWeight: "bold" },
   btnWhite: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "rgba(255,255,255,0.2)", color: "#fff", border: "2px solid rgba(255,255,255,0.4)", cursor: "pointer", marginTop: 12, fontWeight: "bold" },
   divider: { display: "flex", alignItems: "center", margin: "12px 0" },
   dividerText: { color: "#8892b0", fontSize: 13, margin: "0 auto" },
@@ -452,12 +531,13 @@ const s = {
   kick: { background: "#ff4d4d", color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 13 },
   voteBtn: { background: "#6C63FF", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 14, fontWeight: "bold" },
   voteCount: { fontSize: 13, color: "#6C63FF", marginRight: 4 },
-  imposterSelector: { background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "14px", marginBottom: 12 },
-  imposterLabel: { color: "#8892b0", fontSize: 13, marginBottom: 10 },
-  imposterBtns: { display: "flex", gap: 8 },
-  imposterBtn: { flex: 1, padding: "10px", borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "#8892b0", border: "1px solid rgba(255,255,255,0.1)", cursor: "pointer", fontSize: 16, fontWeight: "bold" },
-  imposterBtnActive: { background: "#6C63FF", color: "#fff", border: "1px solid #6C63FF" },
-  timerBox: { textAlign: "center", border: "3px solid #00C853", borderRadius: 16, padding: "16px", marginBottom: 16, background: "rgba(0,0,0,0.2)" },
+  selectorBox: { background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "14px", marginBottom: 12 },
+  selectorLabel: { color: "#fff", fontSize: 14, marginBottom: 10, fontWeight: "500" },
+  selectorHint: { color: "#8892b0", fontSize: 12, fontWeight: "normal" },
+  selectorBtns: { display: "flex", gap: 8 },
+  selectorBtn: { flex: 1, padding: "10px", borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "#8892b0", border: "1px solid rgba(255,255,255,0.1)", cursor: "pointer", fontSize: 15, fontWeight: "bold" },
+  selectorBtnActive: { background: "#6C63FF", color: "#fff", border: "1px solid #6C63FF" },
+  timerBox: { textAlign: "center", border: "3px solid #00C853", borderRadius: 16, padding: "16px", marginBottom: 8, background: "rgba(0,0,0,0.2)" },
   timerText: { fontSize: 52, fontWeight: "bold", lineHeight: 1 },
   timerLabel: { fontSize: 13, color: "#8892b0", marginTop: 4 },
   roundBadge: { textAlign: "center", background: "rgba(108,99,255,0.2)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", display: "block", margin: "0 auto 16px", fontSize: 14, fontWeight: "bold", width: "fit-content" },
