@@ -8,17 +8,9 @@ const WORDS = [
   "аяга", "хаалга", "морь", "цэцэг", "уул", "гол", "өвс", "чулуу",
 ];
 
-function getMaxImposters(playerCount) {
-  if (playerCount <= 4) return 1;
-  if (playerCount <= 6) return 2;
-  return 3;
-}
-
-function getMaxSeconds(playerCount) {
-  if (playerCount <= 4) return 60;
-  if (playerCount <= 6) return 90;
-  return 120;
-}
+function getMaxImposters(n) { return n <= 4 ? 1 : n <= 6 ? 2 : 3; }
+function getMaxSeconds(n) { return n <= 4 ? 30 : n <= 6 ? 60 : 120; }
+function getSecOptions(n) { return n <= 4 ? [15,30] : n <= 6 ? [30,45,60] : [60,90,120]; }
 
 export default function App() {
   const [name, setName] = useState("");
@@ -38,30 +30,29 @@ export default function App() {
   const [timer, setTimer] = useState(null);
   const [discussTimer, setDiscussTimer] = useState(null);
 
-  const maxImposters = getMaxImposters(players.length);
-  const maxSeconds = getMaxSeconds(players.length);
-
   useEffect(() => {
-    if (selectedImposterCount > maxImposters) setSelectedImposterCount(maxImposters);
-    if (selectedSeconds > maxSeconds) setSelectedSeconds(maxSeconds);
+    const mi = getMaxImposters(players.length);
+    const ms = getMaxSeconds(players.length);
+    if (selectedImposterCount > mi) setSelectedImposterCount(mi);
+    if (selectedSeconds > ms) setSelectedSeconds(ms);
   }, [players.length]);
 
   useEffect(() => {
     if (gameState?.status === "voting" && gameState?.timerEnd) {
-      const interval = setInterval(() => {
-        const remaining = Math.ceil((gameState.timerEnd - Date.now()) / 1000);
-        setTimer(remaining > 0 ? remaining : 0);
-        if (remaining <= 0) clearInterval(interval);
+      const iv = setInterval(() => {
+        const r = Math.ceil((gameState.timerEnd - Date.now()) / 1000);
+        setTimer(r > 0 ? r : 0);
+        if (r <= 0) clearInterval(iv);
       }, 500);
-      return () => clearInterval(interval);
+      return () => clearInterval(iv);
     }
     if (gameState?.status === "playing" && gameState?.discussEnd) {
-      const interval = setInterval(() => {
-        const remaining = Math.ceil((gameState.discussEnd - Date.now()) / 1000);
-        setDiscussTimer(remaining > 0 ? remaining : 0);
-        if (remaining <= 0) clearInterval(interval);
+      const iv = setInterval(() => {
+        const r = Math.ceil((gameState.discussEnd - Date.now()) / 1000);
+        setDiscussTimer(r > 0 ? r : 0);
+        if (r <= 0) clearInterval(iv);
       }, 500);
-      return () => clearInterval(interval);
+      return () => clearInterval(iv);
     }
   }, [gameState?.status, gameState?.timerEnd, gameState?.discussEnd]);
 
@@ -70,10 +61,7 @@ export default function App() {
     const code = Math.random().toString(36).substring(2, 7).toUpperCase();
     const playerRef = push(ref(db, `rooms/${code}/players`));
     set(playerRef, { name: name.trim(), ready: false, admin: true });
-    setMyRoom(code);
-    setMyId(playerRef.key);
-    setIsAdmin(true);
-    setJoined(true);
+    setMyRoom(code); setMyId(playerRef.key); setIsAdmin(true); setJoined(true);
     listenRoom(code, playerRef.key);
   }
 
@@ -82,131 +70,76 @@ export default function App() {
     if (!roomCode.trim()) return alert("Room code оруулна уу!");
     const playerRef = push(ref(db, `rooms/${roomCode}/players`));
     set(playerRef, { name: name.trim(), ready: false, admin: false });
-    setMyRoom(roomCode);
-    setMyId(playerRef.key);
-    setIsAdmin(false);
-    setJoined(true);
+    setMyRoom(roomCode); setMyId(playerRef.key); setIsAdmin(false); setJoined(true);
     listenRoom(roomCode, playerRef.key);
   }
 
-  function listenRoom(code, myPlayerId) {
-    onValue(ref(db, `rooms/${code}`), (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
-      if (data.players) {
-        const list = Object.entries(data.players).map(([id, val]) => ({ id, ...val }));
-        setPlayers(list);
-      }
+  function listenRoom(code, pid) {
+    onValue(ref(db, `rooms/${code}`), (snap) => {
+      const data = snap.val(); if (!data) return;
+      if (data.players) setPlayers(Object.entries(data.players).map(([id, v]) => ({ id, ...v })));
       if (data.game) {
         setGameState(data.game);
-        if (data.game.words?.[myPlayerId]) {
-          setMyWord(data.game.words[myPlayerId].word);
-          setMyRole(data.game.words[myPlayerId].role);
-        }
-        if (data.game.votes?.[myPlayerId]) {
-          setHasVoted(true);
-        } else if (data.game.status === "playing") {
-          setHasVoted(false);
-        }
-        if (data.game.voteResult) {
-          setVoteResult(data.game.voteResult);
-        } else {
-          setVoteResult(null);
-        }
+        if (data.game.words?.[pid]) { setMyWord(data.game.words[pid].word); setMyRole(data.game.words[pid].role); }
+        if (data.game.votes?.[pid]) setHasVoted(true);
+        else if (data.game.status === "playing") setHasVoted(false);
+        setVoteResult(data.game.voteResult || null);
       }
     });
   }
 
   function toggleReady() {
-    const player = players.find((p) => p.id === myId);
-    if (!player) return;
-    set(ref(db, `rooms/${myRoom}/players/${myId}/ready`), !player.ready);
+    const p = players.find(p => p.id === myId);
+    if (p) set(ref(db, `rooms/${myRoom}/players/${myId}/ready`), !p.ready);
   }
 
-  function kickPlayer(id) {
-    set(ref(db, `rooms/${myRoom}/players/${id}`), null);
-  }
+  function kickPlayer(id) { set(ref(db, `rooms/${myRoom}/players/${id}`), null); }
 
   function startGame() {
     if (players.length < 3) return alert("Хамгийн багадаа 3 тоглогч хэрэгтэй!");
-    const notReady = players.filter((p) => !p.admin && !p.ready);
-    if (notReady.length > 0) return alert(`${notReady.map((p) => p.name).join(", ")} бэлэн болоогүй байна!`);
-    if (selectedImposterCount >= players.length) return alert("Imposter тоо хэт их байна!");
-
+    const notReady = players.filter(p => !p.admin && !p.ready);
+    if (notReady.length > 0) return alert(`${notReady.map(p => p.name).join(", ")} бэлэн болоогүй!`);
+    if (selectedImposterCount >= players.length) return alert("Imposter тоо хэт их!");
     const shuffled = [...players].sort(() => Math.random() - 0.5);
-    const imposters = shuffled.slice(0, selectedImposterCount).map((p) => p.id);
+    const imposters = shuffled.slice(0, selectedImposterCount).map(p => p.id);
     const word = WORDS[Math.floor(Math.random() * WORDS.length)];
     const words = {};
-    players.forEach((p) => {
-      words[p.id] = imposters.includes(p.id)
-        ? { word: "", role: "imposter" }
-        : { word, role: "crew" };
-    });
-
+    players.forEach(p => { words[p.id] = imposters.includes(p.id) ? { word: "", role: "imposter" } : { word, role: "crew" }; });
     const discussEnd = Date.now() + selectedSeconds * 1000;
-
     update(ref(db, `rooms/${myRoom}/game`), {
-      status: "playing",
-      words,
-      imposters,
-      imposterCount: selectedImposterCount,
-      discussSeconds: selectedSeconds,
-      discussEnd,
-      round: 1,
-      votes: {},
-      voteResult: null,
-      eliminated: {},
+      status: "playing", words, imposters, imposterCount: selectedImposterCount,
+      discussSeconds: selectedSeconds, discussEnd, round: 1, votes: {}, voteResult: null, eliminated: {},
     });
-    setHasVoted(false);
-    setVoteResult(null);
-
-    setTimeout(() => {
-      autoStartVote();
-    }, selectedSeconds * 1000);
+    setHasVoted(false); setVoteResult(null);
+    setTimeout(() => autoStartVote(), selectedSeconds * 1000);
   }
 
   function autoStartVote() {
-    const gameRef = ref(db, `rooms/${myRoom}/game`);
-    onValue(gameRef, (snap) => {
+    onValue(ref(db, `rooms/${myRoom}/game`), (snap) => {
       const data = snap.val();
       if (!data || data.status !== "playing") return;
       const timerEnd = Date.now() + 30000;
-      update(gameRef, {
-        status: "voting",
-        votes: {},
-        timerEnd,
-      });
+      update(ref(db, `rooms/${myRoom}/game`), { status: "voting", votes: {}, timerEnd });
       setTimeout(() => resolveVoteAuto(), 30000);
     }, { onlyOnce: true });
   }
 
   function resolveVoteAuto() {
-    const gameRef = ref(db, `rooms/${myRoom}/game`);
-    onValue(gameRef, (snap) => {
+    onValue(ref(db, `rooms/${myRoom}/game`), (snap) => {
       const data = snap.val();
       if (!data || data.status !== "voting") return;
-      const eliminated = data.eliminated || {};
-      const allPlayers = Object.entries(data.words || {}).map(([id]) => ({ id }));
-      const activePlayers = allPlayers.filter((p) => !eliminated[p.id]);
+      const elim = data.eliminated || {};
+      const active = Object.keys(data.words || {}).filter(id => !elim[id]);
       const votes = data.votes || {};
-
       const tally = {};
-      activePlayers.forEach((p) => { tally[p.id] = 0; });
-      Object.values(votes).forEach((v) => { tally[v] = (tally[v] || 0) + 1; });
-
-      const maxVotes = Math.max(...Object.values(tally));
-      const topId = Object.keys(tally).find((k) => tally[k] === maxVotes);
-      const topPlayerData = players.find((p) => p.id === topId);
-      const wasImposter = data.imposters?.includes(topId);
-
-      update(gameRef, {
+      active.forEach(id => { tally[id] = 0; });
+      Object.values(votes).forEach(v => { tally[v] = (tally[v] || 0) + 1; });
+      const maxV = Math.max(...Object.values(tally));
+      const topId = Object.keys(tally).find(k => tally[k] === maxV);
+      const topPlayer = players.find(p => p.id === topId);
+      update(ref(db, `rooms/${myRoom}/game`), {
         status: "result",
-        voteResult: {
-          playerId: topId,
-          playerName: topPlayerData?.name || "Тоглогч",
-          wasImposter,
-          voteCount: tally[topId] || 0,
-        },
+        voteResult: { playerId: topId, playerName: topPlayer?.name || "Тоглогч", wasImposter: data.imposters?.includes(topId), voteCount: tally[topId] || 0 },
       });
     }, { onlyOnce: true });
   }
@@ -218,344 +151,277 @@ export default function App() {
   }
 
   function nextRound() {
-    const eliminated = { ...(gameState?.eliminated || {}), [voteResult.playerId]: true };
-    const remainingPlayers = players.filter((p) => !eliminated[p.id]);
-    const remainingImposters = gameState.imposters.filter((id) => !eliminated[id]);
-    const remainingCrew = remainingPlayers.filter((p) => !gameState.imposters.includes(p.id));
-
-    if (remainingImposters.length === 0) {
-      update(ref(db, `rooms/${myRoom}/game`), { status: "crewWin", eliminated });
-      return;
-    }
-    if (remainingImposters.length >= remainingCrew.length) {
-      update(ref(db, `rooms/${myRoom}/game`), { status: "imposterWin", eliminated });
-      return;
-    }
-
+    const elim = { ...(gameState?.eliminated || {}), [voteResult.playerId]: true };
+    const remaining = players.filter(p => !elim[p.id]);
+    const remImp = gameState.imposters.filter(id => !elim[id]);
+    const remCrew = remaining.filter(p => !gameState.imposters.includes(p.id));
+    if (remImp.length === 0) { update(ref(db, `rooms/${myRoom}/game`), { status: "crewWin", elim }); return; }
+    if (remImp.length >= remCrew.length) { update(ref(db, `rooms/${myRoom}/game`), { status: "imposterWin", elim }); return; }
     const discussEnd = Date.now() + (gameState.discussSeconds || 30) * 1000;
     update(ref(db, `rooms/${myRoom}/game`), {
-      status: "playing",
-      votes: {},
-      voteResult: null,
-      eliminated,
-      discussEnd,
-      round: (gameState.round || 1) + 1,
+      status: "playing", votes: {}, voteResult: null, eliminated: elim, discussEnd, round: (gameState.round || 1) + 1,
     });
-    setHasVoted(false);
-    setVoteResult(null);
-
-    setTimeout(() => {
-      autoStartVote();
-    }, (gameState.discussSeconds || 30) * 1000);
+    setHasVoted(false); setVoteResult(null);
+    setTimeout(() => autoStartVote(), (gameState.discussSeconds || 30) * 1000);
   }
 
-  // LOBBY
-  if (!joined) {
-    return (
-      <div style={s.page}>
-        <div style={s.container}>
-          <div style={s.logo}>🕵️</div>
-          <h1 style={s.logoTitle}>Монгол Imposter</h1>
-          <p style={s.logoSub}>Найзуудтайгаа тоглоорой</p>
-          <input style={s.input} placeholder="Нэрээ оруулна уу" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createRoom()} />
-          <button style={s.btnPrimary} onClick={createRoom}>🏠 Өрөө үүсгэх</button>
-          <div style={s.divider}><span style={s.dividerText}>эсвэл</span></div>
-          <input style={s.input} placeholder="Room code оруулна уу" value={roomCode} onChange={(e) => setRoomCode(e.target.value.toUpperCase())} onKeyDown={(e) => e.key === "Enter" && joinRoom()} />
-          <button style={s.btnSecondary} onClick={joinRoom}>🚪 Нэвтрэх</button>
+  // ── LOBBY ──────────────────────────────────────────────
+  if (!joined) return (
+    <div style={s.page}>
+      <div style={s.container}>
+        <div style={s.hero}>
+          <div style={s.heroIcon}>🕵️</div>
+          <h1 style={s.heroTitle}>Монгол Imposter</h1>
+          <p style={s.heroSub}>Найзуудтайгаа тоглоорой</p>
+        </div>
+        <div style={s.card}>
+          <input style={s.input} placeholder="Нэрээ оруулна уу" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && createRoom()} />
+          <button style={s.btnGreen} onClick={createRoom}>🏠 Өрөө үүсгэх</button>
+          <div style={s.orRow}><div style={s.orLine}/><span style={s.orText}>эсвэл</span><div style={s.orLine}/></div>
+          <input style={s.input} placeholder="Room code оруулна уу" value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && joinRoom()} />
+          <button style={s.btnOutline} onClick={joinRoom}>🚪 Нэвтрэх</button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // WAITING ROOM
+  // ── WAITING ────────────────────────────────────────────
   if (!gameState || gameState.status === "waiting") {
-    const allReady = players.every((p) => p.admin || p.ready);
+    const allReady = players.every(p => p.admin || p.ready);
     const curMaxImp = getMaxImposters(players.length);
-    const curMaxSec = getMaxSeconds(players.length);
-    const secOptions = players.length <= 4 ? [15, 30] : players.length <= 6 ? [30, 45, 60] : [60, 90, 120];
-
+    const secOpts = getSecOptions(players.length);
     return (
       <div style={s.page}>
         <div style={s.container}>
-          <div style={s.roomCodeBox}>
-            <div style={s.roomCodeLabel}>Өрөөний код</div>
-            <div style={s.roomCode}>{myRoom}</div>
-            <div style={s.roomCodeHint}>Найздаа явуул!</div>
+          <div style={s.codeCard}>
+            <p style={s.codeLabel}>ӨРӨӨНИЙ КОД</p>
+            <p style={s.codeText}>{myRoom}</p>
+            <p style={s.codeSub}>Найздаа явуулаарай</p>
           </div>
-          <div style={s.playerList}>
-            {players.map((p) => (
-              <div key={p.id} style={s.playerCard}>
-                <div style={s.avatar}>{p.name[0].toUpperCase()}</div>
-                <span style={s.playerName}>{p.name} {p.id === myId ? "(чи)" : ""}</span>
-                <span style={p.admin ? s.badgeAdmin : p.ready ? s.badgeReady : s.badgeWait}>
-                  {p.admin ? "👑" : p.ready ? "✅" : "⏳"}
-                </span>
-                {isAdmin && p.id !== myId && (
-                  <button style={s.kick} onClick={() => kickPlayer(p.id)}>✕</button>
-                )}
+          <div style={s.card}>
+            <p style={s.sectionLabel}>ТОГЛОГЧИД — {players.length}</p>
+            {players.map(p => (
+              <div key={p.id} style={s.playerRow}>
+                <div style={s.ava}>{p.name[0].toUpperCase()}</div>
+                <span style={s.playerRowName}>{p.name}{p.id === myId ? " (чи)" : ""}</span>
+                <span style={s.badge}>{p.admin ? "👑" : p.ready ? "✅" : "⏳"}</span>
+                {isAdmin && p.id !== myId && <button style={s.kickBtn} onClick={() => kickPlayer(p.id)}>✕</button>}
               </div>
             ))}
           </div>
-
           {isAdmin && (
             <>
-              <div style={s.selectorBox}>
-                <div style={s.selectorLabel}>
-                  Imposter тоо сонгох: <span style={s.selectorHint}>(max {curMaxImp})</span>
-                </div>
-                <div style={s.selectorBtns}>
-                  {Array.from({ length: curMaxImp }, (_, i) => i + 1).map((n) => (
-                    <button
-                      key={n}
-                      style={{ ...s.selectorBtn, ...(selectedImposterCount === n ? s.selectorBtnActive : {}) }}
-                      onClick={() => setSelectedImposterCount(n)}
-                    >
-                      {n}
-                    </button>
+              <div style={s.card}>
+                <p style={s.sectionLabel}>IMPOSTER ТОО — max {curMaxImp}</p>
+                <div style={s.btnRow}>
+                  {Array.from({ length: curMaxImp }, (_, i) => i + 1).map(n => (
+                    <button key={n} style={{ ...s.choiceBtn, ...(selectedImposterCount === n ? s.choiceBtnActive : {}) }} onClick={() => setSelectedImposterCount(n)}>{n}</button>
                   ))}
                 </div>
               </div>
-
-              <div style={s.selectorBox}>
-                <div style={s.selectorLabel}>
-                  Хэлэлцэх хугацаа: <span style={s.selectorHint}>(max {curMaxSec}с)</span>
-                </div>
-                <div style={s.selectorBtns}>
-                  {secOptions.map((n) => (
-                    <button
-                      key={n}
-                      style={{ ...s.selectorBtn, ...(selectedSeconds === n ? s.selectorBtnActive : {}) }}
-                      onClick={() => setSelectedSeconds(n)}
-                    >
-                      {n}с
-                    </button>
+              <div style={s.card}>
+                <p style={s.sectionLabel}>ХЭЛЭЛЦЭХ ХУГАЦАА</p>
+                <div style={s.btnRow}>
+                  {secOpts.map(n => (
+                    <button key={n} style={{ ...s.choiceBtn, ...(selectedSeconds === n ? s.choiceBtnActive : {}) }} onClick={() => setSelectedSeconds(n)}>{n}с</button>
                   ))}
                 </div>
               </div>
             </>
           )}
-
-          {!isAdmin && (
-            <button style={s.btnPrimary} onClick={toggleReady}>
-              {players.find((p) => p.id === myId)?.ready ? "❌ Болих" : "✅ Бэлэн!"}
-            </button>
-          )}
-          {isAdmin && (
-            <button style={{ ...s.btnStart, opacity: allReady ? 1 : 0.5 }} onClick={startGame}>
-              🚀 Тоглоом эхлүүлэх {!allReady && "(бүгд бэлэн болоогүй)"}
-            </button>
-          )}
+          {!isAdmin && <button style={s.btnGreen} onClick={toggleReady}>{players.find(p => p.id === myId)?.ready ? "❌ Болих" : "✅ Бэлэн!"}</button>}
+          {isAdmin && <button style={{ ...s.btnGreen, opacity: allReady ? 1 : 0.4 }} onClick={startGame}>🚀 Тоглоом эхлүүлэх</button>}
         </div>
       </div>
     );
   }
 
-  // RESULT
-  if (gameState.status === "result" && voteResult) {
-    return (
-      <div style={s.page}>
-        <div style={s.container}>
-          <h2 style={s.title}>📊 Дүн</h2>
-          <div style={voteResult.wasImposter ? s.successCard : s.failCard}>
-            <div style={{ fontSize: 48, marginBottom: 8 }}>{voteResult.wasImposter ? "😈" : "😇"}</div>
-            <div style={s.resultName}>{voteResult.playerName}</div>
-            <div style={s.resultRole}>{voteResult.wasImposter ? "Imposter байсан!" : "Imposter биш байсан!"}</div>
-            <div style={s.resultVotes}>{voteResult.voteCount} vote авсан</div>
-          </div>
-          {isAdmin && <button style={s.btnStart} onClick={nextRound}>▶️ Үргэлжлүүлэх</button>}
-          {!isAdmin && <p style={s.sub}>Admin үргэлжлүүлэхийг хүлээж байна...</p>}
-        </div>
+  // ── RESULT ─────────────────────────────────────────────
+  if (gameState.status === "result" && voteResult) return (
+    <div style={s.page}><div style={s.container}>
+      <p style={s.pageTitle}>📊 Дүн</p>
+      <div style={voteResult.wasImposter ? s.cardGreen : s.cardOrange}>
+        <div style={s.bigEmoji}>{voteResult.wasImposter ? "😈" : "😇"}</div>
+        <p style={s.resultName}>{voteResult.playerName}</p>
+        <p style={s.resultRole}>{voteResult.wasImposter ? "Imposter байсан!" : "Imposter биш байсан!"}</p>
+        <p style={s.resultVotes}>{voteResult.voteCount} vote авсан</p>
       </div>
-    );
-  }
+      {isAdmin && <button style={s.btnGreen} onClick={nextRound}>▶️ Үргэлжлүүлэх</button>}
+      {!isAdmin && <p style={s.mutedText}>Admin үргэлжлүүлэхийг хүлээж байна...</p>}
+    </div></div>
+  );
 
-  // CREW WIN
-  if (gameState.status === "crewWin") {
-    return (
-      <div style={s.page}>
-        <div style={s.container}>
-          <div style={s.winCard}>
-            <div style={{ fontSize: 64 }}>🎉</div>
-            <h2 style={{ margin: "12px 0 8px" }}>Crewmate нар ялалаа!</h2>
-            <p style={{ opacity: 0.9 }}>Бүх imposter олдлоо!</p>
-            {isAdmin && <button style={s.btnWhite} onClick={startGame}>🔄 Дахин тоглох</button>}
-            {!isAdmin && <p style={{ fontSize: 13, opacity: 0.8 }}>Admin дахин эхлүүлэхийг хүлээж байна...</p>}
-          </div>
-        </div>
+  // ── END SCREENS ────────────────────────────────────────
+  if (gameState.status === "crewWin") return (
+    <div style={s.page}><div style={s.container}>
+      <div style={s.cardGreen}>
+        <div style={s.bigEmoji}>🎉</div>
+        <p style={s.endTitle}>Crewmate нар ялалаа!</p>
+        <p style={s.endSub}>Бүх imposter олдлоо!</p>
+        {isAdmin && <button style={s.btnWhite} onClick={startGame}>🔄 Дахин тоглох</button>}
+        {!isAdmin && <p style={s.mutedText}>Admin дахин эхлүүлэхийг хүлээж байна...</p>}
       </div>
-    );
-  }
+    </div></div>
+  );
 
-  // IMPOSTER WIN
-  if (gameState.status === "imposterWin") {
-    return (
-      <div style={s.page}>
-        <div style={s.container}>
-          <div style={s.loseCard}>
-            <div style={{ fontSize: 64 }}>😈</div>
-            <h2 style={{ margin: "12px 0 8px" }}>Imposter нар ялалаа!</h2>
-            <p style={{ opacity: 0.9 }}>Crewmate нар ялагдлаа!</p>
-            {isAdmin && <button style={s.btnWhite} onClick={startGame}>🔄 Дахин тоглох</button>}
-            {!isAdmin && <p style={{ fontSize: 13, opacity: 0.8 }}>Admin дахин эхлүүлэхийг хүлээж байна...</p>}
-          </div>
-        </div>
+  if (gameState.status === "imposterWin") return (
+    <div style={s.page}><div style={s.container}>
+      <div style={s.cardRed}>
+        <div style={s.bigEmoji}>😈</div>
+        <p style={s.endTitle}>Imposter нар ялалаа!</p>
+        <p style={s.endSub}>Crewmate нар ялагдлаа!</p>
+        {isAdmin && <button style={s.btnWhite} onClick={startGame}>🔄 Дахин тоглох</button>}
+        {!isAdmin && <p style={s.mutedText}>Admin дахин эхлүүлэхийг хүлээж байна...</p>}
       </div>
-    );
-  }
+    </div></div>
+  );
 
-  // VOTING
+  // ── VOTING ─────────────────────────────────────────────
   if (gameState.status === "voting") {
-    const eliminated = gameState?.eliminated || {};
-    const activePlayers = players.filter((p) => !eliminated[p.id]);
-    const currentVotes = gameState.votes || {};
-    const remaining = timer !== null ? timer : 30;
-    const timerColor = remaining <= 10 ? "#ff4d4d" : remaining <= 20 ? "#FFB300" : "#00C853";
-
+    const elim = gameState?.eliminated || {};
+    const active = players.filter(p => !elim[p.id]);
+    const curVotes = gameState.votes || {};
+    const rem = timer !== null ? timer : 30;
+    const tc = rem <= 10 ? "#FF4757" : rem <= 20 ? "#FFA502" : "#2ED573";
     return (
-      <div style={s.page}>
-        <div style={s.container}>
-          <h2 style={s.title}>🗳️ Vote хийх цаг!</h2>
-          <div style={{ ...s.timerBox, borderColor: timerColor }}>
-            <div style={{ ...s.timerText, color: timerColor }}>{remaining}</div>
-            <div style={s.timerLabel}>секунд</div>
-          </div>
-          <p style={s.sub}>Сэжигтэй хүнд vote өг!</p>
-          <div style={s.playerList}>
-            {activePlayers.map((p) => {
-              const voteCount = Object.values(currentVotes).filter((v) => v === p.id).length;
-              const iVoted = currentVotes[myId] === p.id;
-              return (
-                <div key={p.id} style={{ ...s.playerCard, ...(iVoted ? s.votedCard : {}) }}>
-                  <div style={s.avatar}>{p.name[0].toUpperCase()}</div>
-                  <span style={s.playerName}>{p.name} {p.id === myId ? "(чи)" : ""}</span>
-                  {voteCount > 0 && <span style={s.voteCount}>🗳️ {voteCount}</span>}
-                  {p.id !== myId && !hasVoted && (
-                    <button style={s.voteBtn} onClick={() => vote(p.id)}>Vote</button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {hasVoted && (
-            <div style={s.waitBox}>
-              ✅ Vote өгсөн! ({Object.keys(currentVotes).length}/{activePlayers.length})
-            </div>
-          )}
+      <div style={s.page}><div style={s.container}>
+        <p style={s.pageTitle}>🗳️ Vote хийх цаг!</p>
+        <div style={{ ...s.timerCard, borderColor: tc }}>
+          <p style={{ ...s.timerNum, color: tc }}>{rem}</p>
+          <p style={s.timerSub}>секунд үлдлээ</p>
         </div>
-      </div>
+        <div style={s.card}>
+          {active.map(p => {
+            const vc = Object.values(curVotes).filter(v => v === p.id).length;
+            const iVoted = curVotes[myId] === p.id;
+            return (
+              <div key={p.id} style={{ ...s.playerRow, ...(iVoted ? s.playerRowVoted : {}) }}>
+                <div style={s.ava}>{p.name[0].toUpperCase()}</div>
+                <span style={s.playerRowName}>{p.name}{p.id === myId ? " (чи)" : ""}</span>
+                {vc > 0 && <span style={s.voteBadge}>🗳️ {vc}</span>}
+                {p.id !== myId && !hasVoted && <button style={s.voteBtn} onClick={() => vote(p.id)}>Vote</button>}
+              </div>
+            );
+          })}
+        </div>
+        {hasVoted && <div style={s.waitCard}>✅ Vote өгсөн! ({Object.keys(curVotes).length}/{active.length})</div>}
+      </div></div>
     );
   }
 
-  // PLAYING
-  const eliminated = gameState?.eliminated || {};
-  const isEliminated = eliminated[myId];
-  const discussRemaining = discussTimer !== null ? discussTimer : gameState?.discussSeconds || 30;
-  const discussColor = discussRemaining <= 10 ? "#ff4d4d" : discussRemaining <= 30 ? "#FFB300" : "#00C853";
+  // ── PLAYING ────────────────────────────────────────────
+  const elim = gameState?.eliminated || {};
+  const isElim = elim[myId];
+  const dRem = discussTimer !== null ? discussTimer : gameState?.discussSeconds || 30;
+  const dc = dRem <= 10 ? "#FF4757" : dRem <= 30 ? "#FFA502" : "#2ED573";
 
   return (
-    <div style={s.page}>
-      <div style={s.container}>
-        <div style={s.roundBadge}>Round {gameState.round}</div>
-
-        <div style={{ ...s.timerBox, borderColor: discussColor, marginBottom: 16 }}>
-          <div style={{ ...s.timerText, color: discussColor }}>{discussRemaining}</div>
-          <div style={s.timerLabel}>секундын дараа vote эхэлнэ</div>
-        </div>
-
-        {isEliminated ? (
-          <div style={s.eliminatedCard}>
-            <div style={{ fontSize: 48 }}>💀</div>
-            <p style={{ fontWeight: "bold", fontSize: 18 }}>Чи хасагдсан!</p>
-            <p style={{ fontSize: 13, opacity: 0.7 }}>Тоглоомыг ажиглаж болно</p>
-          </div>
-        ) : (
-          <div style={myRole === "imposter" ? s.imposterCard : s.crewCard}>
-            <div style={s.roleEmoji}>{myRole === "imposter" ? "😈" : "🧑‍🚀"}</div>
-            <div style={s.roleLabel}>{myRole === "imposter" ? "ЧИ IMPOSTER!" : "Чи Crewmate"}</div>
-            {myRole !== "imposter" && (
-              <div style={s.wordBox}>
-                <div style={s.wordLabel}>Чиний үг</div>
-                <div style={s.wordText}>{myWord}</div>
-              </div>
-            )}
-            <div style={s.hint}>
-              {myRole === "imposter" ? "Бусдыг мэхэл, илэрхгүй бай!" : "Imposter-ийг ол!"}
-            </div>
-          </div>
-        )}
-
-        <div style={s.playerList}>
-          <div style={s.sectionTitle}>Тоглогчид ({players.length})</div>
-          {players.map((p) => (
-            <div key={p.id} style={{ ...s.playerCard, opacity: eliminated[p.id] ? 0.35 : 1 }}>
-              <div style={{ ...s.avatar, background: eliminated[p.id] ? "#999" : "#6C63FF" }}>
-                {eliminated[p.id] ? "💀" : p.name[0].toUpperCase()}
-              </div>
-              <span style={s.playerName}>{p.name} {p.id === myId ? "(чи)" : ""}</span>
-            </div>
-          ))}
-        </div>
+    <div style={s.page}><div style={s.container}>
+      <div style={s.topBar}>
+        <span style={s.roundPill}>Round {gameState.round}</span>
       </div>
-    </div>
+      <div style={{ ...s.timerCard, borderColor: dc, marginBottom: 16 }}>
+        <p style={{ ...s.timerNum, color: dc }}>{dRem}</p>
+        <p style={s.timerSub}>секундын дараа vote эхэлнэ</p>
+      </div>
+      {isElim ? (
+        <div style={s.cardDark}>
+          <div style={s.bigEmoji}>💀</div>
+          <p style={s.endTitle}>Чи хасагдсан!</p>
+          <p style={s.endSub}>Тоглоомыг ажиглаж болно</p>
+        </div>
+      ) : (
+        <div style={myRole === "imposter" ? s.cardRed : s.cardPurple}>
+          <div style={s.bigEmoji}>{myRole === "imposter" ? "😈" : "🧑‍🚀"}</div>
+          <p style={s.roleTitle}>{myRole === "imposter" ? "ЧИ IMPOSTER!" : "Чи Crewmate"}</p>
+          {myRole !== "imposter" && (
+            <div style={s.wordBox}>
+              <p style={s.wordLabel}>ЧИНИЙ ҮГ</p>
+              <p style={s.wordText}>{myWord}</p>
+            </div>
+          )}
+          <p style={s.roleHint}>{myRole === "imposter" ? "Бусдыг мэхэл, илэрхгүй бай!" : "Imposter-ийг ол!"}</p>
+        </div>
+      )}
+      <div style={s.card}>
+        <p style={s.sectionLabel}>ТОГЛОГЧИД</p>
+        {players.map(p => (
+          <div key={p.id} style={{ ...s.playerRow, opacity: elim[p.id] ? 0.3 : 1 }}>
+            <div style={{ ...s.ava, background: elim[p.id] ? "#555" : "#6C63FF" }}>{elim[p.id] ? "💀" : p.name[0].toUpperCase()}</div>
+            <span style={s.playerRowName}>{p.name}{p.id === myId ? " (чи)" : ""}</span>
+          </div>
+        ))}
+      </div>
+    </div></div>
   );
 }
 
 const s = {
-  page: { minHeight: "100vh", background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)", padding: "1rem 0" },
-  container: { maxWidth: 420, margin: "0 auto", padding: "1rem" },
-  logo: { textAlign: "center", fontSize: 64, marginBottom: 8 },
-  logoTitle: { textAlign: "center", fontSize: 28, fontWeight: "bold", color: "#fff", margin: "0 0 4px" },
-  logoSub: { textAlign: "center", color: "#8892b0", marginBottom: 24, fontSize: 14 },
-  input: { width: "100%", padding: "14px 16px", fontSize: 16, borderRadius: 12, border: "1.5px solid #2d3561", background: "#1a1a2e", color: "#fff", marginBottom: 10, boxSizing: "border-box", outline: "none" },
-  btnPrimary: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "#6C63FF", color: "#fff", border: "none", cursor: "pointer", marginBottom: 8, fontWeight: "bold" },
-  btnSecondary: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "transparent", color: "#6C63FF", border: "2px solid #6C63FF", cursor: "pointer", fontWeight: "bold" },
-  btnStart: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "#00C853", color: "#fff", border: "none", cursor: "pointer", marginTop: 8, fontWeight: "bold" },
-  btnWhite: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "rgba(255,255,255,0.2)", color: "#fff", border: "2px solid rgba(255,255,255,0.4)", cursor: "pointer", marginTop: 12, fontWeight: "bold" },
-  divider: { display: "flex", alignItems: "center", margin: "12px 0" },
-  dividerText: { color: "#8892b0", fontSize: 13, margin: "0 auto" },
-  roomCodeBox: { background: "rgba(108,99,255,0.15)", border: "2px solid #6C63FF", borderRadius: 16, padding: "20px", textAlign: "center", marginBottom: 20 },
-  roomCodeLabel: { color: "#8892b0", fontSize: 12, marginBottom: 4 },
-  roomCode: { fontSize: 40, fontWeight: "bold", color: "#6C63FF", letterSpacing: 6 },
-  roomCodeHint: { color: "#8892b0", fontSize: 12, marginTop: 4 },
-  title: { textAlign: "center", fontSize: 22, fontWeight: "bold", color: "#fff", marginBottom: 8 },
-  sub: { textAlign: "center", color: "#8892b0", marginBottom: 16, fontSize: 13 },
-  sectionTitle: { fontSize: 12, color: "#8892b0", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 },
-  playerList: { marginBottom: 16 },
-  playerCard: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.05)", marginBottom: 8, border: "1px solid rgba(255,255,255,0.08)" },
-  votedCard: { border: "2px solid #6C63FF", background: "rgba(108,99,255,0.15)" },
-  avatar: { width: 36, height: 36, borderRadius: "50%", background: "#6C63FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: "bold", fontSize: 15, flexShrink: 0 },
-  playerName: { fontWeight: "500", flex: 1, color: "#fff", fontSize: 15 },
-  badgeAdmin: { fontSize: 18 },
-  badgeReady: { fontSize: 18 },
-  badgeWait: { fontSize: 18 },
-  kick: { background: "#ff4d4d", color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 13 },
-  voteBtn: { background: "#6C63FF", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 14, fontWeight: "bold" },
-  voteCount: { fontSize: 13, color: "#6C63FF", marginRight: 4 },
-  selectorBox: { background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "14px", marginBottom: 12 },
-  selectorLabel: { color: "#fff", fontSize: 14, marginBottom: 10, fontWeight: "500" },
-  selectorHint: { color: "#8892b0", fontSize: 12, fontWeight: "normal" },
-  selectorBtns: { display: "flex", gap: 8 },
-  selectorBtn: { flex: 1, padding: "10px", borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "#8892b0", border: "1px solid rgba(255,255,255,0.1)", cursor: "pointer", fontSize: 15, fontWeight: "bold" },
-  selectorBtnActive: { background: "#6C63FF", color: "#fff", border: "1px solid #6C63FF" },
-  timerBox: { textAlign: "center", border: "3px solid #00C853", borderRadius: 16, padding: "16px", marginBottom: 8, background: "rgba(0,0,0,0.2)" },
-  timerText: { fontSize: 52, fontWeight: "bold", lineHeight: 1 },
-  timerLabel: { fontSize: 13, color: "#8892b0", marginTop: 4 },
-  roundBadge: { textAlign: "center", background: "rgba(108,99,255,0.2)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", display: "block", margin: "0 auto 16px", fontSize: 14, fontWeight: "bold", width: "fit-content" },
-  imposterCard: { background: "linear-gradient(135deg, #ff4d4d, #c0392b)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
-  crewCard: { background: "linear-gradient(135deg, #6C63FF, #4834d4)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
-  eliminatedCard: { background: "rgba(255,255,255,0.05)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff", border: "1px solid rgba(255,255,255,0.1)" },
-  roleEmoji: { fontSize: 52, marginBottom: 8 },
-  roleLabel: { fontSize: 20, fontWeight: "bold", marginBottom: 16 },
-  wordBox: { background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "12px 20px", marginBottom: 12, display: "inline-block" },
-  wordLabel: { fontSize: 11, opacity: 0.8, marginBottom: 4 },
-  wordText: { fontSize: 28, fontWeight: "bold" },
-  hint: { fontSize: 13, opacity: 0.85 },
-  successCard: { background: "linear-gradient(135deg, #00C853, #00897B)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
-  failCard: { background: "linear-gradient(135deg, #FF6B35, #e55039)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 20, color: "#fff" },
-  winCard: { background: "linear-gradient(135deg, #00C853, #00897B)", borderRadius: 20, padding: "3rem 2rem", textAlign: "center", color: "#fff" },
-  loseCard: { background: "linear-gradient(135deg, #ff4d4d, #c0392b)", borderRadius: 20, padding: "3rem 2rem", textAlign: "center", color: "#fff" },
-  resultName: { fontSize: 26, fontWeight: "bold", marginBottom: 8 },
-  resultRole: { fontSize: 16, marginBottom: 8, opacity: 0.9 },
-  resultVotes: { fontSize: 13, opacity: 0.75 },
-  waitBox: { background: "rgba(108,99,255,0.15)", border: "1px solid #6C63FF", borderRadius: 12, padding: "12px", textAlign: "center", color: "#6C63FF", fontSize: 14 },
+  page: { minHeight: "100vh", background: "#0D0D1A", padding: "1.5rem 0" },
+  container: { maxWidth: 420, margin: "0 auto", padding: "0 1rem" },
+
+  hero: { textAlign: "center", marginBottom: 24 },
+  heroIcon: { fontSize: 72, lineHeight: 1, marginBottom: 8 },
+  heroTitle: { fontSize: 30, fontWeight: 800, color: "#fff", margin: "0 0 6px", letterSpacing: -0.5 },
+  heroSub: { fontSize: 14, color: "#555e7a", margin: 0 },
+
+  card: { background: "#161625", border: "1px solid #1e1e35", borderRadius: 16, padding: "16px", marginBottom: 12 },
+  cardRed: { background: "linear-gradient(145deg,#c0392b,#922b21)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 16, color: "#fff" },
+  cardGreen: { background: "linear-gradient(145deg,#1e8449,#145a32)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 16, color: "#fff" },
+  cardOrange: { background: "linear-gradient(145deg,#d35400,#a04000)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 16, color: "#fff" },
+  cardPurple: { background: "linear-gradient(145deg,#5b4fcf,#3b2fa0)", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 16, color: "#fff" },
+  cardDark: { background: "#161625", border: "1px solid #1e1e35", borderRadius: 20, padding: "2rem", textAlign: "center", marginBottom: 16, color: "#fff" },
+
+  codeCard: { background: "linear-gradient(145deg,#1a1a40,#12122e)", border: "2px solid #6C63FF", borderRadius: 20, padding: "20px", textAlign: "center", marginBottom: 12 },
+  codeLabel: { fontSize: 11, color: "#6C63FF", letterSpacing: 2, margin: "0 0 4px", fontWeight: 700 },
+  codeText: { fontSize: 44, fontWeight: 900, color: "#fff", letterSpacing: 8, margin: "0 0 4px" },
+  codeSub: { fontSize: 12, color: "#555e7a", margin: 0 },
+
+  input: { width: "100%", padding: "14px 16px", fontSize: 16, borderRadius: 12, border: "1.5px solid #1e1e35", background: "#0D0D1A", color: "#fff", marginBottom: 10, boxSizing: "border-box", outline: "none" },
+
+  btnGreen: { width: "100%", padding: "15px", fontSize: 16, borderRadius: 12, background: "linear-gradient(135deg,#00b894,#00a381)", color: "#fff", border: "none", cursor: "pointer", marginBottom: 8, fontWeight: 700, letterSpacing: 0.3 },
+  btnOutline: { width: "100%", padding: "15px", fontSize: 16, borderRadius: 12, background: "transparent", color: "#6C63FF", border: "2px solid #6C63FF", cursor: "pointer", fontWeight: 700 },
+  btnWhite: { width: "100%", padding: "14px", fontSize: 16, borderRadius: 12, background: "rgba(255,255,255,0.15)", color: "#fff", border: "2px solid rgba(255,255,255,0.3)", cursor: "pointer", marginTop: 12, fontWeight: 700 },
+
+  orRow: { display: "flex", alignItems: "center", gap: 8, margin: "12px 0" },
+  orLine: { flex: 1, height: 1, background: "#1e1e35" },
+  orText: { color: "#555e7a", fontSize: 12 },
+
+  sectionLabel: { fontSize: 11, color: "#555e7a", letterSpacing: 2, fontWeight: 700, margin: "0 0 12px" },
+  playerRow: { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #1e1e35" },
+  playerRowVoted: { background: "rgba(108,99,255,0.08)", borderRadius: 10, padding: "10px", borderBottom: "none", marginBottom: 4 },
+  playerRowName: { flex: 1, color: "#fff", fontSize: 15, fontWeight: 500 },
+  ava: { width: 38, height: 38, borderRadius: "50%", background: "#6C63FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 15, flexShrink: 0 },
+  badge: { fontSize: 18 },
+  kickBtn: { background: "#c0392b", color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 12 },
+
+  btnRow: { display: "flex", gap: 8 },
+  choiceBtn: { flex: 1, padding: "12px 0", borderRadius: 10, background: "#0D0D1A", color: "#555e7a", border: "1px solid #1e1e35", cursor: "pointer", fontSize: 15, fontWeight: 700 },
+  choiceBtnActive: { background: "#6C63FF", color: "#fff", border: "1px solid #6C63FF" },
+
+  timerCard: { textAlign: "center", border: "3px solid #2ED573", borderRadius: 16, padding: "16px 0", background: "#161625" },
+  timerNum: { fontSize: 56, fontWeight: 900, lineHeight: 1, margin: 0 },
+  timerSub: { fontSize: 12, color: "#555e7a", margin: "4px 0 0" },
+
+  topBar: { display: "flex", justifyContent: "center", marginBottom: 12 },
+  roundPill: { background: "rgba(108,99,255,0.15)", color: "#6C63FF", borderRadius: 20, padding: "6px 20px", fontSize: 13, fontWeight: 700 },
+
+  bigEmoji: { fontSize: 56, marginBottom: 12 },
+  roleTitle: { fontSize: 22, fontWeight: 800, margin: "0 0 14px" },
+  roleHint: { fontSize: 13, opacity: 0.75, margin: 0 },
+  wordBox: { background: "rgba(255,255,255,0.12)", borderRadius: 12, padding: "12px 24px", display: "inline-block", marginBottom: 12 },
+  wordLabel: { fontSize: 10, letterSpacing: 2, opacity: 0.7, margin: "0 0 4px", fontWeight: 700 },
+  wordText: { fontSize: 30, fontWeight: 900, margin: 0 },
+
+  pageTitle: { textAlign: "center", fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 16 },
+  resultName: { fontSize: 26, fontWeight: 800, margin: "0 0 6px" },
+  resultRole: { fontSize: 16, margin: "0 0 6px", opacity: 0.9 },
+  resultVotes: { fontSize: 13, opacity: 0.7, margin: 0 },
+  endTitle: { fontSize: 24, fontWeight: 800, margin: "0 0 6px" },
+  endSub: { fontSize: 14, opacity: 0.8, margin: 0 },
+  mutedText: { textAlign: "center", color: "#555e7a", fontSize: 13, marginTop: 12 },
+
+  voteBtn: { background: "#6C63FF", color: "#fff", border: "none", borderRadius: 8, padding: "7px 16px", cursor: "pointer", fontSize: 14, fontWeight: 700 },
+  voteBadge: { fontSize: 13, color: "#6C63FF", marginRight: 6 },
+  waitCard: { background: "rgba(108,99,255,0.1)", border: "1px solid #6C63FF", borderRadius: 12, padding: "12px", textAlign: "center", color: "#6C63FF", fontSize: 14 },
 };
