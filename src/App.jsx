@@ -10,7 +10,7 @@ const WORDS = [
 
 function getMaxImposters(n) { return n <= 4 ? 1 : n <= 6 ? 2 : 3; }
 function getMaxSeconds(n) { return n <= 4 ? 30 : n <= 6 ? 60 : 120; }
-function getSecOptions(n) { return n <= 4 ? [60,120] : n <= 6 ? [30,45,60] : [60,90,120]; }
+function getSecOptions(n) { return n <= 4 ? [60,120] : n <= 6 ? [60,120,180] : [60,90,120]; }
 
 export default function App() {
   const [name, setName] = useState("");
