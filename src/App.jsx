@@ -3,9 +3,9 @@ import { db } from "./firebase";
 import { ref, set, onValue, push, update } from "firebase/database";
 
 const WORDS = [
-  "Найруулагч", "Тайз", "Камер", "monhbayr", "batuka", "tamiraa", "tugsuu", "erdeekee",
-  "baysuk", "Дуу оруулагч", "Цөл", "Тив", "AMGALAN", "Аппликейшн", "GAZAR", "USA",
-  "MONGOLIA", "Дүн", "SHUNIIN DELGUUR", "Шалгалт", "Хөгжимчин", "Осол", "Дасгалжуулагч", "Цалин",
+  "Найруулагч", "Тайз", "Камер", "Сэтгэл хөдлөл", "Стресс", "Багш", "zuragtnii Удирдлага", "zeel",
+  "SURGUULI", "Хямдрал", "Цөл", "Тив", "AMGALAN", "Аппликейшн", "GAZAR", "USA",
+  "MONGOLIA", "Дүн", "SHUNIIN DELGUUR", "Шалгалт", "Такси", "Осол", "Дэлгүүр", "Цалин",
 ];
 
 function getMaxImposters(n) { return n <= 4 ? 1 : n <= 6 ? 2 : 3; }
